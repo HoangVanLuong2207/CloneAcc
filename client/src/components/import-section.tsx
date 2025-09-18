@@ -68,10 +68,10 @@ export default function ImportSection({ onImport, isImporting, stats }: ImportSe
           <div className="text-xs text-muted-foreground bg-muted p-3 rounded-md">
             <strong>Format file:</strong><br />
             <code className="font-mono text-xs">
-              const accounts = [<br />
-              &nbsp;&nbsp;{`{username: 'user1', password: 'pass1'},`}<br />
-              &nbsp;&nbsp;{`{username: 'user2', password: 'pass2'}`}<br />
-              ];
+              [<br />
+              &nbsp;&nbsp;{`{"username": "user1", "password": "pass1"},`}<br />
+              &nbsp;&nbsp;{`{"username": "user2", "password": "pass2"}`}<br />
+              ]
             </code>
           </div>
           

@@ -74,39 +74,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/accounts/import", upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
-        return res.status(400).json({ message: "No file provided" });
+        return res.status(400).json({ message: "Không có file được cung cấp" });
+      }
+
+      // Check file size (limit to 1MB)
+      if (req.file.size > 1024 * 1024) {
+        return res.status(400).json({ message: "File quá lớn. Giới hạn 1MB" });
       }
 
       const fileContent = req.file.buffer.toString('utf-8');
       
-      // Parse JavaScript file content
+      // Parse file content safely - only accept JSON format
       let accounts;
       try {
-        // Remove any module.exports or const declarations and evaluate the accounts array
-        const cleanContent = fileContent
-          .replace(/const\s+\w+\s*=\s*/, '')
-          .replace(/module\.exports\s*=\s*/, '')
-          .replace(/export\s+(default\s+)?/, '');
+        // Extract JSON array from the file content
+        const arrayMatch = fileContent.match(/\[[\s\S]*\]/);
+        if (!arrayMatch) {
+          return res.status(400).json({ message: "File phải chứa một mảng JSON. Format: [{\"username\": \"user\", \"password\": \"pass\"}]" });
+        }
+
+        // Convert JavaScript object notation to valid JSON
+        const jsonContent = arrayMatch[0]
+          .replace(/(\w+):/g, '"$1":')  // Add quotes around property names
+          .replace(/'/g, '"');          // Convert single quotes to double quotes
         
-        accounts = eval(`(${cleanContent})`);
+        accounts = JSON.parse(jsonContent);
+        console.log('Successfully parsed accounts:', accounts.length, 'items');
       } catch (parseError) {
-        return res.status(400).json({ message: "Invalid JavaScript file format" });
+        console.log('Parse error:', parseError);
+        return res.status(400).json({ message: "Format file không hợp lệ. Sử dụng format JSON: [{\"username\": \"user\", \"password\": \"pass\"}]" });
       }
 
       if (!Array.isArray(accounts)) {
-        return res.status(400).json({ message: "File must contain an array of accounts" });
+        return res.status(400).json({ message: "File phải chứa một mảng tài khoản" });
+      }
+
+      // Limit array size to prevent abuse
+      if (accounts.length > 1000) {
+        return res.status(400).json({ message: "Quá nhiều tài khoản. Giới hạn 1000 tài khoản mỗi lần import" });
       }
 
       const createdAccounts = [];
       const errors = [];
+      const seenUsernames = new Set();
 
       for (const accountData of accounts) {
         try {
           const validatedData = insertAccountSchema.parse(accountData);
+          
+          // Check for duplicates within the file
+          if (seenUsernames.has(validatedData.username)) {
+            errors.push({ account: accountData, error: 'Tên tài khoản trùng lặp trong file' });
+            continue;
+          }
+          seenUsernames.add(validatedData.username);
+
           const account = await storage.createAccount(validatedData);
           createdAccounts.push(account);
         } catch (error) {
-          errors.push({ account: accountData, error: error instanceof Error ? error.message : 'Unknown error' });
+          let errorMessage = 'Lỗi không xác định';
+          if (error instanceof Error) {
+            if (error.message.includes('unique')) {
+              errorMessage = 'Tên tài khoản đã tồn tại trong database';
+            } else {
+              errorMessage = error.message;
+            }
+          }
+          errors.push({ account: accountData, error: errorMessage });
         }
       }
 
